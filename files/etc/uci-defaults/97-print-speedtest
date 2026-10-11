@@ -1,0 +1,55 @@
+#!/bin/sh
+# 首启默认：USB 打印服务器 (p910nd) + 网络测速 (netspeedtest / homebox)
+#
+# 只在第一次开机跑一次，返回 0 后文件自动删除；之后在 LuCI 里随意改。
+# 目的：刷完不用 SSH 进去手敲 uci。
+
+# ------------------------------------------------------------------
+# 1. USB 打印服务器 —— p910nd
+#
+#    kmod-usb-printer 把打印机挂成 /dev/usb/lp0，
+#    p910nd 把 TCP 9100 收到的数据原样转发过去。
+#    包自带的 hotplug 脚本会在插入打印机时自动补齐
+#    device / bidirectional / mdns 等字段，这里只负责把开关打开。
+#
+#    ⚠ 如果你额外装了 luci-app-usb-printer，它自带的 uci-defaults
+#      会把 p910nd 置为 disable 并改由 usb_printer 服务接管，
+#      这种情况下本段无效 —— 需要进 LuCI「服务 → USB 打印服务器」
+#      手动添加一次打印机。
+# ------------------------------------------------------------------
+if [ -f /etc/config/p910nd ]; then
+	uci -q batch <<'UCI'
+set p910nd.@p910nd[0].enabled=1
+set p910nd.@p910nd[0].bidirectional=1
+set p910nd.@p910nd[0].mdns=1
+UCI
+	uci -q commit p910nd
+	[ -x /etc/init.d/p910nd ] && /etc/init.d/p910nd enable
+fi
+
+# 让 mDNS 开机跑起来，电脑/手机才会在「添加打印机」里自动发现它
+[ -x /etc/init.d/umdns ] && /etc/init.d/umdns enable
+
+# ------------------------------------------------------------------
+# 2. 网络测速 —— netspeedtest
+#
+#    homebox  = 内网网页版测速，浏览器打开 http://<光猫IP>:3300
+#    iperf3   = 内网吞吐打流（LuCI 界面里点按钮启停服务端）
+#    Ookla    = 外网宽带速率（走 speedtest.net 官方 CLI）
+#
+#    homebox 启用后会常驻内存几 MB，不在乎可以一直开着；
+#    想省资源就在 LuCI「网络 → 网速测试 → 内网测速网页版」关掉，
+#    用的时候再开。
+# ------------------------------------------------------------------
+if [ -f /etc/config/netspeedtest ]; then
+	# 段名是 netspeedtest.config，选项为 homebox_enabled / homebox_port
+	# /etc/init.d/netspeedtest 只在 homebox_enabled=1 时拉起 homebox
+	uci -q batch <<'UCI'
+set netspeedtest.config.homebox_enabled=1
+set netspeedtest.config.homebox_port='3300'
+UCI
+	uci -q commit netspeedtest
+	[ -x /etc/init.d/netspeedtest ] && /etc/init.d/netspeedtest enable
+fi
+
+exit 0
